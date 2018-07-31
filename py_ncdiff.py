@@ -117,6 +117,9 @@ class netCDF_comp_class(object):
         """
         logger = logging.getLogger(__name__)
         test_desc = 'Compare Variable Names'
+        if not self.common_vars:
+            logger.info("%s: no variables to test!", test_desc)
+            return
         self.test_results[test_desc] = dict()
 
         # Lists are identical if self.baseline['vars'], self.new_file['vars'], and self.common_vars
@@ -127,14 +130,14 @@ class netCDF_comp_class(object):
             self.test_results[test_desc]["pass"] = True
             return
 
+        # Create lists of variables in one file but not the other
+        baseline_only = [var for var in self.baseline['vars'] if var not in self.common_vars]
+        new_file_only = [var for var in self.new_file['vars'] if var not in self.common_vars]
+
         # Variable lists do not match!
         # Log data unless run with --quiet
         if not self.quiet:
-            # (1) Create lists of variables in one file but not the other
-            baseline_only = [var for var in self.baseline['vars'] if var not in self.common_vars]
-            new_file_only = [var for var in self.new_file['vars'] if var not in self.common_vars]
-
-            # (2) Log the contents of these lists
+            # Log the contents of these lists
             if baseline_only:
                 logger.info("%d variable(s) are in the baseline but not the new file:", len(baseline_only))
                 for n, var in enumerate(baseline_only):
@@ -145,8 +148,76 @@ class netCDF_comp_class(object):
                     logger.info("%d. %s", n+1, var)
             logger.info("")
         # Store test results
-        self.test_results[test_desc]["result"] = "Variable list does not match -- some variables exist in one file but not the other"
+        success_cnt = len(self.common_vars)
+        fail_cnt = len(baseline_only) + len(new_file_only)
+        self.test_results[test_desc]["result"] = "Variable list does not match -- %d variables exist in one file but not the other, only %d in both" % \
+            (fail_cnt, success_cnt)
         self.test_results[test_desc]["pass"] = False
+        self.test_results[test_desc]["fail_msg"] = "%d/%d pass" % (success_cnt, success_cnt + fail_cnt)
+
+    ###################
+
+    def compare_variable_type_and_dims(self):
+        """
+        For variables defined in both files, check the following:
+        1. Are the variables the same type in both files?
+        2. Are the variables the same dimensions in both files?
+        """
+        logger = logging.getLogger(__name__)
+        test_desc = 'Compare Variable Types and Dimensions'
+
+        if not self.common_vars:
+            logger.info("%s: no variables to test!", test_desc)
+            return
+        self.test_results[test_desc] = dict()
+        self.test_results[test_desc]["pass"] = True
+
+        remove_var = []
+        for var in self.common_vars:
+            # # Using numpy.equals() is speedy-ish
+            # if not self.baseline['ds'][var].equals(self.new_file['ds'][var]):
+            #     remove_var.append(var)
+            #     if not self.quiet:
+            #         logger.info("Variable %s is not the same between files", var)
+            # Look for variables that differ in type
+            if self.baseline['ds'][var].dtype != self.new_file['ds'][var].dtype:
+                remove_var.append(var)
+                # self.baseline['ds'].drop(var)
+                # self.new_file['ds'].drop(var)
+                if not self.quiet:
+                    logger.info("%s is type %s in baseline and type %s in new file", var,
+                                self.baseline['ds'][var].dtype, self.new_file['ds'][var].dtype)
+            # Look for variables that differ in number of dimensions
+            elif self.baseline['ds'][var].ndim != self.new_file['ds'][var].ndim:
+                remove_var.append(var)
+                # self.baseline['ds'].drop(var)
+                # self.new_file['ds'].drop(var)
+                if not self.quiet:
+                    logger.info("%s has %d dimensions in baseline and %d dimensions in new file", var,
+                                self.baseline['ds'][var].ndim, self.new_file['ds'][var].ndim)
+            # Look for variables that differ in size
+            elif self.baseline['ds'][var].sizes != self.new_file['ds'][var].sizes:
+                remove_var.append(var)
+                # self.baseline['ds'].drop(var)
+                # self.new_file['ds'].drop(var)
+                if not self.quiet:
+                    logger.info("%s has size %d in baseline and size %d in new file", var,
+                                self.baseline['ds'][var].size, self.new_file['ds'][var].size)
+
+        # Remove variables that differ in type from common_vars
+        total_cnt = len(self.common_vars)
+        if remove_var:
+            self.test_results[test_desc]["pass"] = False
+            for var in remove_var:
+                self.common_vars.remove(var)
+            fail_cnt = len(remove_var)
+            self.test_results[test_desc]["fail_msg"] = "%d/%d pass" % (total_cnt - fail_cnt, total_cnt)
+            self.test_results[test_desc]["result"] = "Variable types / dimensions do not match -- " + \
+                "%d of %d variables that appear in both files differ in type or dimension" % \
+                (fail_cnt, total_cnt)
+        else:
+            self.test_results[test_desc]["result"] = "All %d variables that appear in both files have same type / dimension" % \
+                total_cnt
 
     ###################
 
@@ -164,7 +235,7 @@ class netCDF_comp_class(object):
                 if self.test_results[test_desc]["pass"]:
                     results = test_desc + ": PASS"
                 else:
-                    results = test_desc + ": FAIL"
+                    results = "%s: FAIL (%s)" % (test_desc, self.test_results[test_desc]["fail_msg"])
             else:
                 results = self.test_results[test_desc]["result"]
             logger.info("(%d) %s", n+1, results)
@@ -205,7 +276,8 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     test=netCDF_comp_class(args.baseline, args.new_file, args.quiet)
-    same_header = test.compare_variable_names()
+    test.compare_variable_names()
+    test.compare_variable_type_and_dims()
 
     # Summary (requires test and error counts)
     err_cnt = 0
