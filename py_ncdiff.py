@@ -117,9 +117,11 @@ class netCDF_comp_class(object):
         """
         logger = logging.getLogger(__name__)
         test_desc = 'Compare Variable Names'
+
         if not self.common_vars:
             logger.info("%s: no variables to test!", test_desc)
             return
+
         self.test_results[test_desc] = dict()
 
         # Lists are identical if self.baseline['vars'], self.new_file['vars'], and self.common_vars
@@ -169,16 +171,12 @@ class netCDF_comp_class(object):
         if not self.common_vars:
             logger.info("%s: no variables to test!", test_desc)
             return
+
         self.test_results[test_desc] = dict()
         self.test_results[test_desc]["pass"] = True
 
         remove_var = []
         for var in self.common_vars:
-            # # Using numpy.equals() is speedy-ish
-            # if not self.baseline['ds'][var].equals(self.new_file['ds'][var]):
-            #     remove_var.append(var)
-            #     if not self.quiet:
-            #         logger.info("Variable %s is not the same between files", var)
             # Look for variables that differ in type
             if self.baseline['ds'][var].dtype != self.new_file['ds'][var].dtype:
                 remove_var.append(var)
@@ -218,6 +216,123 @@ class netCDF_comp_class(object):
         else:
             self.test_results[test_desc]["result"] = "All %d variables that appear in both files have same type / dimension" % \
                 total_cnt
+
+    ###################
+
+    def compare_metadata(self):
+        """
+        For variables defined in both files, check for differences in metadata
+        """
+        logger = logging.getLogger(__name__)
+        test_desc = 'Compare Metadata'
+
+        if not self.common_vars:
+            logger.info("%s: no variables to test!", test_desc)
+            return
+
+        self.test_results[test_desc] = dict()
+        self.test_results[test_desc]["pass"] = True
+
+        fail_cnt = 0
+        for var in self.common_vars:
+            if self.baseline['ds'][var].attrs != self.new_file['ds'][var].attrs:
+                fail_cnt +=1
+                if not self.quiet:
+                    logger.info("Metadata difference in %s:" % var)
+                    self.get_metadata_differences(self.baseline['ds'][var].attrs, self.new_file['ds'][var].attrs)
+
+        var_cnt = len(self.common_vars)
+        if fail_cnt != 0:
+            self.test_results[test_desc]["pass"] = False
+            self.test_results[test_desc]["fail_msg"] = "%d/%d pass" % (var_cnt - fail_cnt, var_cnt)
+            self.test_results[test_desc]["result"] = "Metadata does not match -- %d of %d variables with same type / dimensions differ" % \
+                (fail_cnt, var_cnt)
+        else:
+            self.test_results[test_desc]["result"] = "All %d variables with same type / dimensions have same metadata" % \
+                var_cnt
+
+    ###################
+
+    def compare_values(self):
+        """
+        For variables defined in both files, check for differences in metadata
+        """
+        logger = logging.getLogger(__name__)
+        test_desc = 'Compare Values'
+
+        if not self.common_vars:
+            logger.info("%s: no variables to test!", test_desc)
+            return
+
+        self.test_results[test_desc] = dict()
+        self.test_results[test_desc]["pass"] = True
+
+        fail_cnt = 0
+        for var in self.common_vars:
+            # Using xr.equals() is speedy-ish
+            if not self.baseline['ds'][var].equals(self.new_file['ds'][var]):
+                fail_cnt +=1
+                if not self.quiet:
+                    logger.info("Variable: %s ...", var)
+                    self.get_value_differences(self.baseline['ds'][var].data, self.new_file['ds'][var].data)
+
+        var_cnt = len(self.common_vars)
+        if fail_cnt != 0:
+            self.test_results[test_desc]["pass"] = False
+            self.test_results[test_desc]["fail_msg"] = "%d/%d pass" % (var_cnt - fail_cnt, var_cnt)
+            self.test_results[test_desc]["result"] = "Variable values do not match -- %d of %d variables with same type / dimensions differ" % \
+                (fail_cnt, var_cnt)
+        else:
+            self.test_results[test_desc]["result"] = "All %d variables with same type / dimensions have same values" % \
+                var_cnt
+
+    ###################
+
+    def get_metadata_differences(self, baseline_attrs, new_file_attrs):
+        """
+        Possible differences in metadata:
+        1. One file has defined attribute that another file does not have
+        2. Both files have the same attribute defined, but the values differ
+        """
+        logger = logging.getLogger(__name__)
+
+        common_attrs = list(set(baseline_attrs) & set(new_file_attrs))
+        if ((len(baseline_attrs) != len(new_file_attrs)) or
+            (len(baseline_attrs) != len(common_attrs))):
+            baseline_only = [attr for attr in baseline_attrs if attr not in common_attrs]
+            new_file_only = [attr for attr in new_file_attrs if attr not in common_attrs]
+            for attr in baseline_only:
+                logger.info("%s not defined in new_file" % attr)
+            for attr in new_file_only:
+                logger.info("%s not defined in baseline" % attr)
+        for attr in common_attrs:
+            if baseline_attrs[attr] != new_file_attrs[attr]:
+                logger.info("%s is '%s' in baseline but '%s' in new_file" % \
+                            (attr, baseline_attrs[attr], new_file_attrs[attr]))
+
+    ###################
+
+    def get_value_differences(self, baseline_data, new_file_data):
+        """
+        Possible differences:
+        1. Different missing values
+        2. Different actual values
+        """
+        import numpy as np
+        logger = logging.getLogger(__name__)
+        logger.info("... variable is {} ...".format(baseline_data.dtype))
+
+        if np.any(np.argwhere(np.isnan(baseline_data)) != np.argwhere(np.isnan(new_file_data))):
+            logger.info('... Masks are not the same')
+        baseline_masked = np.ma.masked_invalid(baseline_data)
+        new_file_masked = np.ma.masked_invalid(new_file_data)
+        if np.ma.any(baseline_masked != new_file_masked):
+            masked_diff = np.max(np.abs(baseline_masked - new_file_masked))
+            logger.info("... Biggest (absolute) diff = {}".format(masked_diff))
+            if np.ma.any(baseline_masked != 0):
+                logger.info("... Biggest (relative) diff = {}".format( \
+                    masked_diff / np.amax(np.abs(baseline_masked))))
+        logger.info("")
 
     ###################
 
@@ -278,6 +393,8 @@ if __name__ == "__main__":
     test=netCDF_comp_class(args.baseline, args.new_file, args.quiet)
     test.compare_variable_names()
     test.compare_variable_type_and_dims()
+    test.compare_metadata()
+    test.compare_values()
 
     # Summary (requires test and error counts)
     err_cnt = 0
