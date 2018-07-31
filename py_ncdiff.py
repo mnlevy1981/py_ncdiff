@@ -14,45 +14,6 @@ Besides standard libraries, needs the following python packages:
 """
 import logging
 
-###################
-
-def init_logging():
-    """
-    Setup logger so WARNINGS and ERRORS -> stderr, rest to stdout
-    Taken from
-    https://gist.github.com/timss/8f03ae681256f21e25f8b0a16327c26c
-    which in turn is based on
-    http://stackoverflow.com/a/24956305/1076493
-    """
-    import sys
-
-    class MaxLevelFilter(logging.Filter):
-        def __init__(self, level):
-            self.level = level
-
-        def filter(self, record):
-            return record.levelno < self.level
-
-    # Initialize two log streams
-    logging_out = logging.StreamHandler(sys.stdout)
-    logging_err = logging.StreamHandler(sys.stderr)
-
-    # Format warnings / errors differently than info
-    logging_out.setFormatter(logging.Formatter('%(message)s'))
-    logging_err.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
-
-    # Set levels / filters so standard output is >= DEBUG but < WARNING
-    # and error output is >= WARNING
-    logging_out.setLevel(logging.DEBUG)
-    logging_out.addFilter(MaxLevelFilter(logging.WARNING))
-    logging_err.setLevel(logging.WARNING)
-
-    # Initialize logger
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    logger.addHandler(logging_out)
-    logger.addHandler(logging_err)
-
 ##########
 
 class netCDF_comp_class(object):
@@ -83,6 +44,7 @@ class netCDF_comp_class(object):
         self.new_file = dict()
         self.quiet = quiet
         self.test_results = OrderedDict()
+        self.diff_vars = []
 
         # Read baseline
         if os.path.isfile(baseline):
@@ -272,6 +234,7 @@ class netCDF_comp_class(object):
             # Using xr.equals() is speedy-ish
             if not self.baseline['ds'][var].equals(self.new_file['ds'][var]):
                 fail_cnt +=1
+                self.diff_vars.append(var)
                 if not self.quiet:
                     logger.info("Variable: %s ...", var)
                     self.get_value_differences(self.baseline['ds'][var].data, self.new_file['ds'][var].data)
@@ -380,6 +343,45 @@ def _parse_args():
                         default=None, help="Specific variables to compare (None => compare all)")
 
     return parser.parse_args()
+
+###################
+
+def init_logging():
+    """
+    Setup logger so WARNINGS and ERRORS -> stderr, rest to stdout
+    Taken from
+    https://gist.github.com/timss/8f03ae681256f21e25f8b0a16327c26c
+    which in turn is based on
+    http://stackoverflow.com/a/24956305/1076493
+    """
+    import sys
+
+    class MaxLevelFilter(logging.Filter):
+        def __init__(self, level):
+            self.level = level
+
+        def filter(self, record):
+            return record.levelno < self.level
+
+    # Initialize two log streams
+    logging_out = logging.StreamHandler(sys.stdout)
+    logging_err = logging.StreamHandler(sys.stderr)
+
+    # Format warnings / errors differently than info
+    logging_out.setFormatter(logging.Formatter('%(message)s'))
+    logging_err.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+
+    # Set levels / filters so standard output is >= DEBUG but < WARNING
+    # and error output is >= WARNING
+    logging_out.setLevel(logging.DEBUG)
+    logging_out.addFilter(MaxLevelFilter(logging.WARNING))
+    logging_err.setLevel(logging.WARNING)
+
+    # Initialize logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logger.addHandler(logging_out)
+    logger.addHandler(logging_err)
 
 ###################
 
