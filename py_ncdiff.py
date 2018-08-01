@@ -23,9 +23,12 @@ class netCDF_comp_class(object):
 
     ###################
 
-    def __init__(self, baseline, new_file, quiet=False):
+    def __init__(self, baseline, new_file, quiet=False, is_POP=False):
         """
         Use xarray to read datasets (save as class objects)
+
+        Setting quiet=True will reduce output from individual tests
+        Setting is_POP=True will define lat and lon coordinates correctly
         """
         import os
         import sys
