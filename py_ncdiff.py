@@ -51,7 +51,7 @@ class netCDF_comp_class(object):
 
         # Read baseline
         if os.path.isfile(baseline):
-            self.baseline['ds'] = xr.open_dataset(baseline, decode_times=False, decode_coords=False)
+            self.baseline['ds'] = xr.open_dataset(baseline, decode_times=False)
             self.baseline['vars'] = self.baseline['ds'].variables.keys()
         else:
             logger.error('Can not open %s', baseline)
@@ -59,7 +59,7 @@ class netCDF_comp_class(object):
 
         # Read new_file
         if os.path.isfile(new_file):
-            self.new_file['ds'] = xr.open_dataset(new_file, decode_times=False, decode_coords=False)
+            self.new_file['ds'] = xr.open_dataset(new_file, decode_times=False)
             self.new_file['vars'] = self.new_file['ds'].variables.keys()
         else:
             logger.error('Can not open %s', new_file)
